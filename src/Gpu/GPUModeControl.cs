@@ -460,11 +460,34 @@ public class GPUModeControl
             // ACPI side of the egpu_enable write has nothing left to tear down.
             DropDgpuPciNodes();
 
-            // The write can still stall in the kernel if a holder slipped
+            // Write exactly ONE backend node, gated on the current value
+            // (supergfxctl's approach). The legacy asus-nb-wmi node and the
+            // asus-armoury fw-attr drive the same firmware DEVS method, so
+            // the blind write-everything used for benign attrs would invoke
+            // the ACPI hot-swap transition multiple times here.
+            //
+            // The write can also stall in the kernel if a holder slipped
             // through (uninterruptible D-state). Run it on a worker and bound
             // the wait so the app stays responsive and can report the wedge.
             string target = enable ? "1" : "0";
-            var writeTask = Task.Run(() => SysfsHelper.WriteToAllBackendsDetailed(AsusAttributes.EgpuEnable, target));
+            string? attrPath = SysfsHelper.ResolveAttrPath(AsusAttributes.EgpuEnable);
+            if (attrPath == null)
+            {
+                Logger.WriteLine("GPUModeControl: XGM - no egpu_enable backend available");
+                return GpuSwitchResult.Failed;
+            }
+            bool viaLegacy = !attrPath.Contains("firmware-attributes", StringComparison.Ordinal);
+
+            var writeTask = Task.Run(() =>
+            {
+                string? cur = SysfsHelper.ReadAttribute(attrPath)?.Trim();
+                if (cur == target)
+                {
+                    Logger.WriteLine($"GPUModeControl: XGM - egpu_enable already {target}, skipping write");
+                    return true;
+                }
+                return SysfsHelper.WriteAttribute(attrPath, target);
+            });
             if (!writeTask.Wait(TimeSpan.FromSeconds(45)))
             {
                 Logger.WriteLine("GPUModeControl: XGM - egpu_enable write stalled >45s (kernel D-state) - reboot required, do NOT suspend");
@@ -472,10 +495,9 @@ public class GPUModeControl
                 return GpuSwitchResult.Failed;
             }
 
-            var writeResult = writeTask.Result;
             // RX 6850M dock: firmware wants the ACPI 0x101 magic instead of
-            // the plain sysfs value when only the fw-attr backend took it.
-            if (AppConfig.Is("xgm_special") && enable && !writeResult.Legacy)
+            // the plain sysfs value when the legacy backend is absent.
+            if (AppConfig.Is("xgm_special") && enable && !viaLegacy)
             {
                 try
                 {
@@ -487,9 +509,9 @@ public class GPUModeControl
                     Logger.WriteLine($"GPUModeControl: XGM raw_wmi fallback failed: {ex.Message}");
                 }
             }
-            if (!writeResult.Any)
+            if (!writeTask.Result)
             {
-                Logger.WriteLine("GPUModeControl: XGM - no egpu_enable backend accepted the write");
+                Logger.WriteLine($"GPUModeControl: XGM - egpu_enable write to {attrPath} failed");
                 return GpuSwitchResult.Failed;
             }
 
