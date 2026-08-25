@@ -412,6 +412,152 @@ public class GPUModeControl
     }
 
     /// <summary>
+    /// Live XG Mobile toggle for ROG Flow laptops with the proprietary
+    /// PCIe dock connector (GV301 etc.).
+    ///
+    /// Writing egpu_enable makes ACPI hot-remove the outgoing GPU on the
+    /// shared root port - the internal dGPU on enable, the dock GPU on
+    /// disable. If the nvidia driver still has userspace holders at that
+    /// moment, the asus_armoury / asus-wmi store handler deadlocks in an
+    /// uninterruptible D-state that only a reboot clears (upstream #171).
+    /// So the write is only issued after the same staged teardown the Eco
+    /// "Switch Now" flow uses: reset clocks, stop daemons, signal DRM
+    /// remove, unbind, purge holders, rmmod - then drop the outgoing GPU
+    /// from the PCI tree, write the toggle bounded by a timeout, rescan,
+    /// and reload nvidia against the incoming GPU.
+    ///
+    /// May block for tens of seconds - call from a background thread.
+    /// </summary>
+    public GpuSwitchResult TryReleaseAndSwitchXgMobile(bool enable)
+    {
+        if (!_switchLock.Wait(0))
+            return GpuSwitchResult.AlreadySet;
+
+        try
+        {
+            Logger.WriteLine($"GPUModeControl: XGM live switch requested (enable={enable})");
+            LogHoldersSnapshot(enable ? "pre-xgm-enable" : "pre-xgm-disable");
+
+            // MUX=0 (Ultimate): the internal dGPU drives the panel, and the
+            // egpu_enable write ACPI-disables it - guaranteed black screen.
+            if (GetEffectiveMux() == 0)
+            {
+                Logger.WriteLine("GPUModeControl: XGM refused - MUX=0 (Ultimate). Switch GPU mode to Standard and reboot first");
+                return GpuSwitchResult.EcoBlocked;
+            }
+
+            // Release the nvidia driver from the outgoing GPU. Session-critical
+            // holders (compositor, display server) are never killed - if one
+            // still holds the device the release fails and we refuse the write
+            // instead of deadlocking the kernel.
+            if (!TryReleaseGpuDriver())
+            {
+                Logger.WriteLine("GPUModeControl: XGM - driver release failed, NOT writing egpu_enable (would deadlock in kernel)");
+                return GpuSwitchResult.DriverBlocking;
+            }
+
+            // Drop the outgoing GPU's PCI functions while driverless so the
+            // ACPI side of the egpu_enable write has nothing left to tear down.
+            DropDgpuPciNodes();
+
+            // The write can still stall in the kernel if a holder slipped
+            // through (uninterruptible D-state). Run it on a worker and bound
+            // the wait so the app stays responsive and can report the wedge.
+            string target = enable ? "1" : "0";
+            var writeTask = Task.Run(() => SysfsHelper.WriteToAllBackendsDetailed(AsusAttributes.EgpuEnable, target));
+            if (!writeTask.Wait(TimeSpan.FromSeconds(45)))
+            {
+                Logger.WriteLine("GPUModeControl: XGM - egpu_enable write stalled >45s (kernel D-state) - reboot required, do NOT suspend");
+                GpuQueryGate.Hold("egpu_enable write stalled");
+                return GpuSwitchResult.Failed;
+            }
+
+            var writeResult = writeTask.Result;
+            // RX 6850M dock: firmware wants the ACPI 0x101 magic instead of
+            // the plain sysfs value when only the fw-attr backend took it.
+            if (AppConfig.Is("xgm_special") && enable && !writeResult.Legacy)
+            {
+                try
+                {
+                    bool rawOk = AsusWmiDebugfs.WriteRaw(AsusWmiDebugfs.DEVID_EGPU, 0x101u);
+                    Logger.WriteLine($"GPUModeControl: XGM 6850M raw_wmi 0x101 fallback ok={rawOk}");
+                }
+                catch (Exception ex)
+                {
+                    Logger.WriteLine($"GPUModeControl: XGM raw_wmi fallback failed: {ex.Message}");
+                }
+            }
+            if (!writeResult.Any)
+            {
+                Logger.WriteLine("GPUModeControl: XGM - no egpu_enable backend accepted the write");
+                return GpuSwitchResult.Failed;
+            }
+
+            // supergfxctl: firmware needs a moment after the toggle, then a
+            // rescan brings in the incoming GPU (dock on enable, internal
+            // dGPU on disable).
+            Thread.Sleep(500);
+
+            string? gfxBdf = null;
+            if (!IsTestMode)
+            {
+                for (int waited = 0; waited < 30000; waited += 1000)
+                {
+                    SysfsHelper.WriteAttribute("/sys/bus/pci/rescan", "1");
+                    Thread.Sleep(1000);
+                    var dev = FindDgpuPciDevice();
+                    if (dev != null && dev.Value.vendor.Equals("0x10de", StringComparison.OrdinalIgnoreCase))
+                    {
+                        gfxBdf = dev.Value.bdf;
+                        break;
+                    }
+                }
+            }
+            else
+            {
+                gfxBdf = FindDgpuPciDevice()?.bdf;
+            }
+
+            if (gfxBdf == null)
+            {
+                // AMD dock (RX 6850M) enumerates as vendor 0x1002 - the NVIDIA
+                // reload below does not apply, but the toggle itself worked.
+                var amdDock = FindDgpuPciDevice();
+                if (amdDock != null)
+                {
+                    Logger.WriteLine($"GPUModeControl: XGM - non-NVIDIA GPU at {amdDock.Value.bdf} (AMD dock), skipping nvidia reload");
+                    return GpuSwitchResult.Applied;
+                }
+                Logger.WriteLine("GPUModeControl: XGM - toggle written but no GPU enumerated after rescan");
+                GpuQueryGate.Hold("XGM: GPU did not enumerate");
+                return GpuSwitchResult.DgpuReenableFailed;
+            }
+
+            Logger.WriteLine($"GPUModeControl: XGM - NVIDIA GPU present at {gfxBdf}, loading driver");
+            if (!IsTestMode && !LoadNvidiaWithRetry(gfxBdf))
+            {
+                Logger.WriteLine($"GPUModeControl: XGM - nvidia driver did not bind to {gfxBdf}");
+                return GpuSwitchResult.DgpuReenableFailed;
+            }
+
+            ApplyVulkanIcd(dgpuAvailable: true);
+            GpuQueryGate.Resume();
+            Logger.WriteLine($"GPUModeControl: XGM live switch complete (egpu_enable={target}, gpu={gfxBdf})");
+            return GpuSwitchResult.Applied;
+        }
+        catch (Exception ex)
+        {
+            Logger.WriteLine($"GPUModeControl: TryReleaseAndSwitchXgMobile failed: {ex.Message}");
+            return GpuSwitchResult.Failed;
+        }
+        finally
+        {
+            RestartStoppedHolderServices();
+            _switchLock.Release();
+        }
+    }
+
+    /// <summary>
     /// Save desired mode to config for next reboot. Latches any MUX changes.
     /// Called from the "After Reboot" confirmation dialog button.
     /// Does NOT write dgpu_disable.

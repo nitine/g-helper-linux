@@ -2439,57 +2439,60 @@ public partial class MainWindow : Window
         bool enabling = targetValue == "1";
         await Task.Run(async () =>
         {
-            var result = SysfsHelper.WriteToAllBackendsDetailed(
-                Platform.Linux.AsusAttributes.EgpuEnable, targetValue);
-
-            // Optional 6850M raw_wmi fallback: if the user has the special
-            // RX 6850M dock and only the fw-attr path took the write, also
-            // try the ACPI 0x101 magic value via raw debugfs. See
-            // Phase 9 in the plan.
-            if (Helpers.AppConfig.Is("xgm_special") && enabling && !result.Legacy)
+            // The egpu_enable write ACPI hot-removes the outgoing GPU on the
+            // shared root port. Writing it while the nvidia driver has live
+            // holders deadlocks the kernel in an uninterruptible D-state
+            // (upstream #171), so the switch goes through GPUModeControl's
+            // staged release instead of a naked sysfs write.
+            GpuSwitchResult result;
+            var gpu = App.GpuModeCtrl;
+            if (gpu == null)
             {
-                try
-                {
-                    bool rawOk = Platform.Linux.AsusWmiDebugfs.WriteRaw(
-                        Platform.Linux.AsusWmiDebugfs.DEVID_EGPU, 0x101u);
-                    Helpers.Logger.WriteLine($"XGMobile: 6850M raw_wmi 0x101 fallback ok={rawOk}");
-                }
-                catch (Exception ex)
-                {
-                    Helpers.Logger.WriteLine($"XGMobile: raw_wmi 0x101 fallback failed: {ex.Message}");
-                }
-            }
-
-            Helpers.Logger.WriteLine(
-                $"XGMobile: egpu_enable {raw} -> {targetValue} (legacy={result.Legacy} fwAttr={result.FwAttr})");
-
-            if (enabling && result.Any)
-            {
-                try
-                { USB.XGM.Init(); }
-                catch (Exception ex) { Helpers.Logger.WriteLine($"XGMobile post-enable Init: {ex.Message}"); }
-            }
-
-            // Smart user message:
-            //   legacy succeeded -> ACPI applies immediately, ~15 s settle
-            //   only fw-attr     -> asus-armoury stages until next reboot
-            //   nothing wrote    -> hard error, surface "unavailable"
-            string body;
-            string icon;
-            if (!result.Any)
-            {
-                body = Labels.Get("xgm_unavailable");
-                icon = "dialog-warning";
-            }
-            else if (result.Legacy)
-            {
-                body = Labels.Get("xgm_toggled_immediate");
-                icon = "preferences-system";
+                Helpers.Logger.WriteLine("XGMobile: GpuModeCtrl unavailable - refusing unguarded egpu_enable write");
+                result = GpuSwitchResult.Failed;
             }
             else
             {
-                body = Labels.Get("xgm_toggled_reboot");
-                icon = "system-reboot";
+                // Purge user-space holders up front (mirrors RunSwitchNowKillFlow).
+                // Session-critical processes are filtered by the scanner and never
+                // killed; if one of those still holds the device the release in
+                // the controller fails and nothing is written.
+                Gpu.NVidia.NvidiaProcessScanner.InvalidateScanCache();
+                var snapshot = Gpu.NVidia.NvidiaProcessScanner.ScanHolders();
+                if (snapshot.Count > 0)
+                {
+                    Gpu.NVidia.NvidiaProcessScanner.KillHoldersGracefulThenForce(snapshot, out var survivors);
+                    Helpers.Logger.WriteLine($"XGMobile: pre-switch holder purge, survivors={survivors.Count}");
+                }
+                result = gpu.TryReleaseAndSwitchXgMobile(enabling);
+            }
+
+            Helpers.Logger.WriteLine($"XGMobile: egpu_enable {raw} -> {targetValue} result={result}");
+
+            string body;
+            string icon;
+            switch (result)
+            {
+                case GpuSwitchResult.Applied:
+                    body = Labels.Get(enabling ? "xgm_live_enabled" : "xgm_live_disabled");
+                    icon = "preferences-system";
+                    break;
+                case GpuSwitchResult.DriverBlocking:
+                    body = Labels.Get("xgm_release_failed");
+                    icon = "dialog-warning";
+                    break;
+                case GpuSwitchResult.EcoBlocked:
+                    body = Labels.Get("xgm_mux_blocked");
+                    icon = "dialog-warning";
+                    break;
+                case GpuSwitchResult.DgpuReenableFailed:
+                    body = Labels.Get("xgm_gpu_missing");
+                    icon = "system-reboot";
+                    break;
+                default:
+                    body = Labels.Get("xgm_switch_failed");
+                    icon = "dialog-warning";
+                    break;
             }
 
             Avalonia.Threading.Dispatcher.UIThread.Post(() =>
@@ -2497,21 +2500,21 @@ public partial class MainWindow : Window
                 App.System?.ShowNotification(Labels.Get("xgm_label"), body, icon);
             });
 
-            // 15 s settle - match Windows g-helper. After this we refresh
-            // the UI to reflect the new state regardless of which backend
-            // handled the write.
-            await Task.Delay(TimeSpan.FromSeconds(15));
+            if (result == GpuSwitchResult.Applied && enabling)
+            {
+                try
+                { USB.XGM.Init(); }
+                catch (Exception ex) { Helpers.Logger.WriteLine($"XGMobile post-enable Init: {ex.Message}"); }
+            }
 
-            // Post-enable steps that must run after the dock GPU has had
-            // time to enumerate on PCIe (mirrors Windows g-helper
-            // GPUModeControl.cs:320-323):
-            //
+            // Post-enable steps (mirrors Windows g-helper GPUModeControl.cs:320-323):
             //   1. Push the saved fan curve when auto_apply_fans is on -
             //      otherwise the dock runs the firmware default until the
             //      next mode switch even if the user has a custom curve.
             //   2. Probe for the RX 6850M and persist xgm_special so the
             //      next enable cycle uses the ACPI 0x101 path automatically.
-            if (enabling && result.Any)
+            await Task.Delay(TimeSpan.FromSeconds(2));
+            if (result == GpuSwitchResult.Applied && enabling)
             {
                 try
                 {
