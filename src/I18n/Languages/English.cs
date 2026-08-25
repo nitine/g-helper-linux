@@ -892,7 +892,7 @@ public static class English
         ["xgm_toggled_reboot"] = "XG Mobile toggled - reboot to apply",
         ["xgm_live_enabled"] = "XG Mobile enabled - eGPU is ready",
         ["xgm_live_disabled"] = "XG Mobile disabled - internal GPU restored",
-        ["xgm_release_failed"] = "NVIDIA driver is still in use - nothing was written. Close apps using the GPU; if the compositor holds it, pin it to the iGPU (e.g. AQ_DRM_DEVICES for Hyprland)",
+        ["xgm_release_failed"] = "The desktop session is holding the NVIDIA GPU - nothing was changed. Log out and back in, then toggle XG Mobile again",
         ["xgm_mux_blocked"] = "GPU MUX is in Ultimate mode - switch to Standard and reboot before toggling XG Mobile",
         ["xgm_gpu_missing"] = "Toggle applied but the GPU did not enumerate - a reboot may be required",
         ["xgm_switch_failed"] = "XG Mobile switch failed - see log. If the toggle stalled in the kernel, reboot and do not suspend",

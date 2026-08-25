@@ -446,10 +446,27 @@ public class GPUModeControl
                 return GpuSwitchResult.EcoBlocked;
             }
 
-            // Release the nvidia driver from the outgoing GPU. Session-critical
-            // holders (compositor, display server) are never killed - if one
-            // still holds the device the release fails and we refuse the write
-            // instead of deadlocking the kernel.
+            // HARD STOP if a session-critical process (compositor, display
+            // server) holds the NVIDIA device. TryReleaseGpuDriver would
+            // never kill it, but it DOES signal a synthetic DRM remove uevent
+            // first - and aquamarine/Hyprland reacts to losing a card it has
+            // open by tearing down the whole session (and segfaults in its
+            // exit path on top). So the check must come BEFORE any release
+            // action, not after a failed one.
+            NvidiaProcessScanner.InvalidateScanCache();
+            NvidiaProcessScanner.ScanHolders();
+            var sysHolders = NvidiaProcessScanner.GetFilteredSystemProcesses();
+            var sessionBlockers = sysHolders.Where(s => !s.EndsWith("/0fds", StringComparison.Ordinal)).ToList();
+            if (sessionBlockers.Count > 0)
+            {
+                Logger.WriteLine($"GPUModeControl: XGM refused - session processes hold the NVIDIA device, a live switch would kill the session: [{string.Join(", ", sessionBlockers)}]");
+                Logger.WriteLine("GPUModeControl: XGM - log out and back in, then toggle again (the login environment releases the device)");
+                return GpuSwitchResult.DriverBlocking;
+            }
+
+            // Release the nvidia driver from the outgoing GPU. Remaining
+            // holders are regular apps (already purged by the UI); if the
+            // release still fails we refuse the write instead of deadlocking.
             if (!TryReleaseGpuDriver())
             {
                 Logger.WriteLine("GPUModeControl: XGM - driver release failed, NOT writing egpu_enable (would deadlock in kernel)");
