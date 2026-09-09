@@ -93,6 +93,7 @@ public partial class FansWindow : Window
         {
             labelManualFanStatus.IsVisible = Fan.ManualFanService.Enabled;
             labelManualFanStatus.Text = text;
+            UpdateDisabledState();
         });
     }
 
@@ -1102,7 +1103,7 @@ public partial class FansWindow : Window
                 { USB.XGM.SetFan(ClampXgmCurve(curve)); }
                 catch (Exception ex) { Helpers.Logger.WriteLine($"XGM.SetFan: {ex.Message}"); }
             }
-            else
+            else if (!Fan.ManualFanService.Running)
             {
                 App.Wmi?.SetFanCurve(fanIndex, curve);
             }
@@ -1225,9 +1226,11 @@ public partial class FansWindow : Window
     private void UpdateDisabledState()
     {
         var wmi = App.Wmi;
-        bool cpuEnabled = wmi?.IsFanCurveEnabled(0) ?? false;
-        bool gpuEnabled = wmi?.IsFanCurveEnabled(1) ?? false;
-        bool midEnabled = !chartMid.IsVisible || (wmi?.IsFanCurveEnabled(2) ?? false);
+        // EC follower reads the curves from config, hwmon pwm_enable is moot
+        bool manual = Fan.ManualFanService.Running;
+        bool cpuEnabled = manual || (wmi?.IsFanCurveEnabled(0) ?? false);
+        bool gpuEnabled = manual || (wmi?.IsFanCurveEnabled(1) ?? false);
+        bool midEnabled = manual || !chartMid.IsVisible || (wmi?.IsFanCurveEnabled(2) ?? false);
         bool anyDisabled = !cpuEnabled || !gpuEnabled || !midEnabled;
 
         chartCPU.Disabled = !cpuEnabled;
