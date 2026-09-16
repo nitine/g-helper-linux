@@ -100,6 +100,8 @@ Pull requests and feature requests are welcome!
 └──────────────────────────────────────────────────────────────────┘
 ```
 
+Fn Lock remembers its last on/off state, including changes made with its toggle hotkey. Enable auto-start to restore it when you log in. It takes effect when G-Helper starts, not at the boot or login screen. New installations default to off.
+
 Experimental Lenovo support (IdeaPad / Legion / LOQ / Yoga): performance modes, battery conservation, fan monitoring, PPT limits and keyboard backlight via the mainline ideapad-laptop and lenovo-wmi kernel drivers (kernel 6.17+ for power limits).
 
 ---
