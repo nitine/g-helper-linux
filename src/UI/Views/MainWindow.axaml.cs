@@ -2554,14 +2554,14 @@ public partial class MainWindow : Window
     ///                          natively.
     ///   ON  (blue accent)     - software remapper running with media keys
     ///                          mode active.
-    /// State is held by FnLockRemapper.IsActive (not persisted, off by default
-    /// each session). Delegates to <see cref="App.SetFnLockEnabled"/> so the
+    /// State is held by FnLockRemapper and persisted by App (fnlock_enabled,
+    /// fnlock_on). Delegates to <see cref="App.SetFnLockEnabled"/> so the
     /// tray menu and any other UI surface go through the same authoritative
     /// path.
     /// </summary>
     private void ButtonFnLock_Click(object? sender, RoutedEventArgs e)
     {
-        bool currentlyOn = App.FnLock?.IsActive ?? false;
+        bool currentlyOn = (App.FnLock?.IsActive ?? false) && App.FnLock!.FnLockOn;
         App.SetFnLockEnabled(!currentlyOn);
         RefreshFnLockButton();
     }

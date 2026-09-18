@@ -199,7 +199,7 @@ public class App : Application
 
             // Restore Fn Lock after the UI and input services are ready.
             if (AppConfig.Is("fnlock_enabled"))
-                StartFnLock();
+                StartFnLock(AppConfig.Get("fnlock_on", 1) == 1);
 
             // Command socket for follow-up "ghelper --osk" invocations, and
             // the keyboard itself when this startup was osk-initiated.
@@ -1429,7 +1429,8 @@ public class App : Application
         else
         {
             StopFnLock();
-            SaveFnLockState(false);
+            AppConfig.Set("fnlock_enabled", 0);
+            AppConfig.Flush();
         }
         RefreshTrayFnLockHeader();
     }
@@ -1454,9 +1455,10 @@ public class App : Application
     /// <summary>
     /// Start the software fn-lock remapper. Reads saved hotkey from config
     /// and wires OSD/tray refresh callbacks. Idempotent; returns early if
-    /// already running.
+    /// already running. <paramref name="fnLockOn"/> is the initial mode;
+    /// startup passes the saved one, UI callers force media keys.
     /// </summary>
-    public static void StartFnLock()
+    public static void StartFnLock(bool fnLockOn = true)
     {
         if (FnLock != null && FnLock.IsActive)
         {
@@ -1473,7 +1475,7 @@ public class App : Application
                 // Save hotkey changes, but not the provisional startup state
                 // or its rollback when grabbing the keyboard fails.
                 if (FnLock.IsActive)
-                    SaveFnLockState(isOn);
+                    SaveFnLockOn(isOn);
                 string title = Labels.Get("fnlock_tray_label");
                 string body = isOn ? Labels.Get("fnlock_osd_on") : Labels.Get("fnlock_osd_off");
                 System?.ShowNotification(title, body, "preferences-desktop-keyboard");
@@ -1503,10 +1505,10 @@ public class App : Application
             return;
         }
 
-        // User clicked to turn fn-lock ON, so start in media-keys mode. The
-        // remapper boolean defaults to false at construction; we set it
+        // UI callers start in media-keys mode; startup restores the saved one.
+        // The remapper boolean defaults to false at construction; we set it
         // explicitly here so the OSD/tray reflect ON immediately on first start.
-        FnLock.FnLockOn = true;
+        FnLock.FnLockOn = fnLockOn;
         FnLock.SetToggleHotkey(
             (ushort)AppConfig.Get("fnlock_modifier", EvdevInterop.KEY_LEFTMETA),
             (ushort)AppConfig.Get("fnlock_key", EvdevInterop.KEY_F2));
@@ -1529,7 +1531,8 @@ public class App : Application
             return;
         }
 
-        SaveFnLockState(FnLock.FnLockOn);
+        AppConfig.Set("fnlock_enabled", 1);
+        SaveFnLockOn(FnLock.FnLockOn);
 
         // Make sure the main-window button + tray menu header show up immediately.
         Avalonia.Threading.Dispatcher.UIThread.Post(() =>
@@ -1537,9 +1540,9 @@ public class App : Application
         RefreshTrayFnLockHeader();
     }
 
-    private static void SaveFnLockState(bool enabled)
+    private static void SaveFnLockOn(bool on)
     {
-        AppConfig.Set("fnlock_enabled", enabled ? 1 : 0);
+        AppConfig.Set("fnlock_on", on ? 1 : 0);
         // Preserve the choice even if logout follows before the debounce timer.
         AppConfig.Flush();
     }
