@@ -8,6 +8,25 @@
 
 ### Changed
 
+## v1.0.93 (2026-09-18)
+
+### Added
+
+- Experimental manual fan control for models whose firmware has no fan curve support (TUF FA506/FA507/FX506/FX507). Extra window checkbox to enable it(#59, #177).
+- Fn Lock state is remembered across restarts. New installs still default to off (#186, thanks @achagani).
+- SECURITY.md: supported versions, private reporting, helper trust boundaries.
+- Diagnostics report includes the manual fan enable and running state.
+
+### Fixed
+
+- PL1/PL2/fPPT bounds are read from the firmware min_value/max_value instead of the model table, so the sliders cannot offer a wattage the kernel rejects with EINVAL (#181, thanks @RicardoEGG).
+- audio-helper test_frames.py used a stale frame size and unpacked trailing fields at the wrong offset.
+
+### Changed
+
+- Avalonia 12.1.2, Svg.Controls.Skia.Avalonia 12.0.0.17, Svg.Skia 5.2.3.
+- GitHub Actions: checkout v7, setup-dotnet v6, upload-artifact v7, download-artifact v8, github-script v9, action-gh-release v3.
+
 ## v1.0.92 (2026-08-23)
 
 ### Added

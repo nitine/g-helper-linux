@@ -47,7 +47,7 @@ rec {
   # The main GUI binary, built from source as a Native AOT single binary.
   ghelper = buildDotnetModule rec {
     pname = "ghelper";
-    version = "1.0.88";
+    version = "1.0.93";
 
     src = lib.cleanSource ../.;
 
