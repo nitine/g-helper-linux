@@ -197,6 +197,10 @@ public class App : Application
             // Start hotkey listener
             StartHotkeyListener();
 
+            // Restore Fn Lock after the UI and input services are ready.
+            if (AppConfig.Is("fnlock_enabled"))
+                StartFnLock();
+
             // Command socket for follow-up "ghelper --osk" invocations, and
             // the keyboard itself when this startup was osk-initiated.
             CommandIpc.StartServer(cmd =>
@@ -1415,15 +1419,18 @@ public class App : Application
 
     /// <summary>
     /// Starts or stops the remapper and refreshes MainWindow button + tray menu header.
-    /// State is held entirely in <see cref="FnLock"/>.IsActive - there is no
-    /// persisted enable flag, matching Windows g-helper's "off by default"
+    /// Remembers explicit user changes; shutdown and internal restarts do not
+    /// clear the saved preference. New installations still default to off.
     /// </summary>
     public static void SetFnLockEnabled(bool enabled)
     {
         if (enabled)
             StartFnLock();
         else
+        {
             StopFnLock();
+            SaveFnLockState(false);
+        }
         RefreshTrayFnLockHeader();
     }
 
@@ -1452,13 +1459,21 @@ public class App : Application
     public static void StartFnLock()
     {
         if (FnLock != null && FnLock.IsActive)
+        {
+            // The hotkey can leave the remapper running in F-key passthrough.
+            FnLock.FnLockOn = true;
             return;
+        }
 
         if (FnLock == null)
         {
             FnLock = new FnLockRemapper();
             FnLock.FnLockChanged += isOn =>
             {
+                // Save hotkey changes, but not the provisional startup state
+                // or its rollback when grabbing the keyboard fails.
+                if (FnLock.IsActive)
+                    SaveFnLockState(isOn);
                 string title = Labels.Get("fnlock_tray_label");
                 string body = isOn ? Labels.Get("fnlock_osd_on") : Labels.Get("fnlock_osd_off");
                 System?.ShowNotification(title, body, "preferences-desktop-keyboard");
@@ -1514,10 +1529,19 @@ public class App : Application
             return;
         }
 
+        SaveFnLockState(FnLock.FnLockOn);
+
         // Make sure the main-window button + tray menu header show up immediately.
         Avalonia.Threading.Dispatcher.UIThread.Post(() =>
             MainWindowInstance?.RefreshFnLockButton());
         RefreshTrayFnLockHeader();
+    }
+
+    private static void SaveFnLockState(bool enabled)
+    {
+        AppConfig.Set("fnlock_enabled", enabled ? 1 : 0);
+        // Preserve the choice even if logout follows before the debounce timer.
+        AppConfig.Flush();
     }
 
     /// <summary>Stop and release the fn-lock remapper. Idempotent.</summary>
