@@ -118,6 +118,7 @@ public static class Scenarios
         PowerLimitBounds_Sanitize_PoisonFloor_Dropped();
         PowerLimitBounds_Sanitize_BelowFirmwareMin_ClampedUp();
         PowerLimitBounds_Sanitize_AboveMax_ClampedDown();
+        PowerLimitBounds_Sanitize_AboveTableMax_Dropped();
         PowerLimitBounds_Sanitize_InRange_Unchanged();
 
         Console.WriteLine("\n GPU query gate ");
@@ -1387,5 +1388,18 @@ public static class Scenarios
             AssertEqual(28, b.Sanitize(28, TableMin), "firmware minimum itself is legal");
             AssertEqual(65, b.Sanitize(65, TableMin), "mid-range untouched");
             Assert(b.Contains(140) && !b.Contains(141), "Contains follows the bounds");
+        });
+
+    static void PowerLimitBounds_Sanitize_AboveTableMax_Dropped()
+        => Scenario(nameof(PowerLimitBounds_Sanitize_AboveTableMax_Dropped), _ =>
+        {
+            // No firmware range: the ceiling is the model table's guess, so an
+            // over-max value is dropped as master did rather than clamped to a
+            // number the app made up.
+            var b = PowerLimitBounds.Resolve(null, TableMin, TableMax);
+            Assert(!b.FromFirmware, "table-only bounds");
+            AssertEqual(-1, b.Sanitize(TableMax + 1, TableMin), "above table max dropped, not clamped");
+            AssertEqual(TableMax, b.Sanitize(TableMax, TableMin), "at the table ceiling still applied");
+            AssertEqual(65, b.Sanitize(65, TableMin), "in-range untouched");
         });
 }

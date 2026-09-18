@@ -41,6 +41,8 @@ public sealed record PowerLimitBounds(int Min, int Max, bool FromFirmware)
     {
         if (watts <= poisonFloor)
             return -1;
+        if (!FromFirmware && watts > Max)
+            return -1;
         return Math.Clamp(watts, Min, Max);
     }
 }
