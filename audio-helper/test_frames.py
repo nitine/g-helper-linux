@@ -3,9 +3,9 @@
 Parse one or more ghelper-audio binary frames from stdin and emit one JSON
 object per line for the test harness to consume with `jq`.
 
-Each frame is exactly 2592 bytes:
+Each frame is exactly 2596 bytes:
     16 B  header   (magic, version, seq, flags)
-    16 B  scalars  (vad_prob, rms_in_db, rms_out_db, reduction_db)
+    20 B  scalars  (vad_prob, rms_in_db, rms_out_db, reduction_db, tracked_pitch_hz)
   2048 B  waveforms (256 in + 256 out, float32 each)
    512 B  spectra  ( 64 in +  64 out, float32 each)
 
@@ -20,7 +20,13 @@ import json
 import struct
 import sys
 
-PKT = 2592
+WAVEFORM_SAMPLES = 256
+SPECTRUM_BINS = 64
+HDR = 4 * 4 + 5 * 4  # 4x uint32 + 5x float32
+WAV_BYTES = WAVEFORM_SAMPLES * 4
+SPEC_BYTES = SPECTRUM_BINS * 4
+SPEC0 = HDR + 2 * WAV_BYTES
+PKT = SPEC0 + 2 * SPEC_BYTES  # 2596
 MAGIC = 0x47484146  # "GHAF"
 
 
@@ -39,7 +45,8 @@ def main() -> int:
     emitted = 0
     for i in range(n):
         p = raw[i * PKT:(i + 1) * PKT]
-        magic, ver, seq, flags, vad, rin, rout, red = struct.unpack("<IIIIffff", p[:32])
+        magic, ver, seq, flags, vad, rin, rout, red, pitch = struct.unpack(
+            "<IIIIfffff", p[:HDR])
         if magic != MAGIC:
             print(f"bad magic at frame {i}: 0x{magic:08x}", file=sys.stderr)
             return 2
@@ -55,15 +62,16 @@ def main() -> int:
             "rms_in_db": round(rin, 2),
             "rms_out_db": round(rout, 2),
             "reduction_db": round(red, 2),
+            "tracked_pitch_hz": round(pitch, 2),
         }
         if not args.skip_waveform:
-            wi = struct.unpack("<256f", p[32:32 + 1024])
-            wo = struct.unpack("<256f", p[32 + 1024:32 + 2048])
+            wi = struct.unpack(f"<{WAVEFORM_SAMPLES}f", p[HDR:HDR + WAV_BYTES])
+            wo = struct.unpack(f"<{WAVEFORM_SAMPLES}f", p[HDR + WAV_BYTES:SPEC0])
             out["waveform_in_max"] = round(max(abs(x) for x in wi), 4)
             out["waveform_out_max"] = round(max(abs(x) for x in wo), 4)
         if not args.skip_spectrum:
-            si = struct.unpack("<64f", p[32 + 2048:32 + 2048 + 256])
-            so = struct.unpack("<64f", p[32 + 2048 + 256:32 + 2048 + 512])
+            si = struct.unpack(f"<{SPECTRUM_BINS}f", p[SPEC0:SPEC0 + SPEC_BYTES])
+            so = struct.unpack(f"<{SPECTRUM_BINS}f", p[SPEC0 + SPEC_BYTES:PKT])
             out["spectrum_in_min"] = round(min(si), 2)
             out["spectrum_in_max"] = round(max(si), 2)
             out["spectrum_out_min"] = round(min(so), 2)
