@@ -555,7 +555,7 @@ public static class AppConfig
     public static bool IsEcoBootFixModel() =>
         ContainsModel("G635L") || ContainsModel("G615L") ||
         ContainsModel("G835L") || ContainsModel("G815L") ||
-        ContainsModel("FA506") || ContainsModel("FX517");
+        ContainsModel("FA506") || ContainsModel("FX517") || ContainsModel("FX608");
 
     public static bool NoGpu() => Is("no_gpu") || ContainsModel("UX540") || ContainsModel("M560") || ContainsModel("GZ302") || IsOnlyAIMAX();
     public static bool IsAMDiGPU() => ContainsModel("GV301RA") || ContainsModel("GV302XA") || ContainsModel("GZ302") || IsOnlyAIMAX() || IsAlly();
@@ -564,7 +564,7 @@ public static class AppConfig
     public static bool IsShutdownReset() => Is("shutdown_reset") || ContainsModel("FX507Z");
     // NOT WIRED ON LINUX (upstream parity stub).
     public static bool IsStopAC() => IsAlly() || Is("stop_ac");
-    public static bool IsChargeLimit6080() => ContainsModel("GU405") || ContainsModel("GU606") || ContainsModel("H760") || ContainsModel("GA403") || ContainsModel("GU605") || ContainsModel("GA605") || ContainsModel("GA503R") || (IsTUF() && !(ContainsModel("FX507Z") || ContainsModel("FA617") || ContainsModel("FA607")));
+    public static bool IsChargeLimit6080() => ContainsModel("GU405") || ContainsModel("GU606") || ContainsModel("H760") || ContainsModel("GA403") || ContainsModel("GU605") || ContainsModel("GA605") || ContainsModel("GA503R") || (IsTUF() && !(ContainsModel("FX507Z") || ContainsModel("FA617") || ContainsModel("FA607") || ContainsModel("FX607")));
 
     // Dynamic boost
     public static bool DynamicBoost5() => ContainsModel("GZ301ZE");
@@ -573,7 +573,7 @@ public static class AppConfig
 
     // Performance mode
     public static bool IsAlwaysUltimate() => ContainsModel("FA507NUR") || ContainsModel("FA506NCR") || ContainsModel("FA507NVR");
-    public static bool IsModeReapplyRequired() => Is("mode_reapply") || ContainsModel("FA401");
+    public static bool IsModeReapply() => IsNotFalse("mode_reapply");
     public static bool IsResetRequired() => ContainsModel("GA403UI") || ContainsModel("GA403UU") || ContainsModel("GA403UV") || ContainsModel("FA507XV");
     public static bool IsPowerRequired() => ContainsModel("GU605M") || ContainsModel("FX507") || ContainsModel("FX517") || ContainsModel("FX707");
 
@@ -598,7 +598,7 @@ public static class AppConfig
 
     // RGB / AURA
     public static bool IsWhite() => ContainsModel("GA401") || ContainsModel("FX517Z") || ContainsModel("FX516P") || ContainsModel("X13") || IsARCNM() || ContainsModel("FA617N") || ContainsModel("FA617X") || NoAura() || Is("no_rgb");
-    public static bool NoAura() => (ContainsModel("GA401I") && !ContainsModel("GA401IHR")) || ContainsModel("GA502IU") || ContainsModel("HN7306") || ContainsModel("M6500X");
+    public static bool NoAura() => (ContainsModel("GA401I") && !ContainsModel("GA401IHR")) || ContainsModel("GA502IU") || ContainsModel("HN7306") || ContainsModel("H7606") || ContainsModel("M6500X");
     public static bool IsBacklightZones() => IsStrix() || IsZ13();
 
     // 2024+ models whose lightbar/keyboard use HID LampArray for direct RGB
@@ -708,7 +708,7 @@ public static class AppConfig
     // CPU platform
     public static bool IsIntelHX() => ContainsModel("G814") || ContainsModel("G614") || ContainsModel("G834") || ContainsModel("G634") || ContainsModel("G835") || ContainsModel("G635") || ContainsModel("G815") || ContainsModel("G615");
     public static bool Is8Ecores() => ContainsModel("FX507Z") || ContainsModel("GU603ZV");
-    public static bool IsCPULight() => ContainsModel("GA402X") || ContainsModel("GA605") || ContainsModel("GA403") || ContainsModel("FA507N") || ContainsModel("FA507X") || ContainsModel("FA707N") || ContainsModel("FA707X") || ContainsModel("GZ302") || ContainsModel("GU405") || ContainsModel("GX651");
+    public static bool IsCPULight() => ContainsModel("GA402X") || ContainsModel("GA605") || ContainsModel("GA403") || ContainsModel("FA507N") || GetModelShort().Contains("FA507X") || ContainsModel("FA707N") || ContainsModel("FA707X") || ContainsModel("GZ302") || ContainsModel("GU405") || ContainsModel("GX651");
 
     // Display
     public static bool IsOLED() =>
@@ -729,7 +729,7 @@ public static class AppConfig
 
     // Form factor / misc
     public static bool HasTabletMode() => ContainsModel("X16") || ContainsModel("X13") || ContainsModel("Z13");
-    public static bool IsSleepBacklight() => ContainsModel("FA617") || ContainsModel("FX507") || ContainsModel("FA507");
+    public static bool IsSleepBacklight() => ContainsModel("FA617") || ContainsModel("FX507") || ContainsModel("FA507") || ContainsModel("FA401");
     public static bool NoWMI() => ContainsModel("GL704G") || ContainsModel("GM501G") || ContainsModel("GX501G");
 
     // UI / config-only
