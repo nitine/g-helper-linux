@@ -699,16 +699,19 @@ public class ModeControl
     }
 
     /// <summary>
-    /// Re-apply (or reset, per the auto-apply flag) the current mode's GPU tuning.
-    /// Called when the dGPU is re-enabled (Eco -> Standard) so persistence survives
-    /// a GPU-mode toggle without a full performance-mode re-apply.
+    /// Re-apply the current mode after the dGPU is re-enabled (Eco -> Standard):
+    /// firmware on some models resets PPT on a GPU toggle (upstream 0e41b36f).
+    /// mode_reapply=0 falls back to re-applying only the GPU tuning.
     /// </summary>
     public void ReapplyGpuForCurrentMode()
     {
         try
         {
             App.RefreshGpuControlIfMissing();
-            AutoGpuPower(Modes.GetCurrent());
+            if (Helpers.AppConfig.IsModeReapply())
+                SetPerformanceMode(Modes.GetCurrent());
+            else
+                AutoGpuPower(Modes.GetCurrent());
         }
         catch (Exception ex)
         {
