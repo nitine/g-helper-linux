@@ -456,7 +456,12 @@ public class GPUModeControl
             NvidiaProcessScanner.InvalidateScanCache();
             NvidiaProcessScanner.ScanHolders();
             var sysHolders = NvidiaProcessScanner.GetFilteredSystemProcesses();
-            var sessionBlockers = sysHolders.Where(s => !s.EndsWith("/0fds", StringComparison.Ordinal)).ToList();
+            // NVIDIA daemons (nvidia-powerd runs whenever on AC) are stopped
+            // by TryReleaseGpuDriver itself - they must not block the switch.
+            var sessionBlockers = sysHolders
+                .Where(s => !s.EndsWith("/0fds", StringComparison.Ordinal))
+                .Where(s => !NvidiaProcessScanner.IsNvidiaDaemonBrief(s))
+                .ToList();
             if (sessionBlockers.Count > 0)
             {
                 Logger.WriteLine($"GPUModeControl: XGM refused - session processes hold the NVIDIA device, a live switch would kill the session: [{string.Join(", ", sessionBlockers)}]");

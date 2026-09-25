@@ -68,6 +68,28 @@ public static class NvidiaProcessScanner
             return _filteredSystemCache;
     }
 
+    private static readonly string[] NvidiaDaemonCommPrefixes = new[]
+    {
+        "nvidia-persiste", "nvidia-powerd", "nvidia-bug-repor",
+    };
+
+    /// <summary>
+    /// True if a GetFilteredSystemProcesses() entry is an NVIDIA daemon.
+    /// These are system-filtered so the purge never kills them, but the
+    /// driver release stops them via systemd - they are not session-critical.
+    /// </summary>
+    public static bool IsNvidiaDaemonBrief(string brief)
+    {
+        int colon = brief.IndexOf(':');
+        if (colon < 0)
+            return false;
+        string comm = brief[(colon + 1)..];
+        foreach (var prefix in NvidiaDaemonCommPrefixes)
+            if (comm.StartsWith(prefix, StringComparison.Ordinal))
+                return true;
+        return false;
+    }
+
     private static readonly string[] SystemCommPrefixes = new[]
     {
         // NVIDIA daemons
