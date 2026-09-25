@@ -363,6 +363,14 @@ static void stop_service(int pid)
     char cgroup[CGROUP_BUF_SIZE];
     if (!read_cgroup(pid, cgroup, sizeof(cgroup)))
         return;
+    /* Never stop a unit in the user's session.slice: under uwsm that unit is
+     * the compositor itself (wayland-wm@*.service), and shells like quickshell
+     * run inside it - stopping it logs the user out. Signal the pid only. */
+    if (strstr(cgroup, "/session.slice/") != NULL)
+    {
+        glog(LOG_INFO, "kill: pid %d is in session.slice, not stopping its unit", pid);
+        return;
+    }
     char unit[UNIT_BUF_SIZE];
     unsigned int uid = (unsigned int)-1;
     int kind = classify_service(cgroup, unit, sizeof(unit), &uid);
